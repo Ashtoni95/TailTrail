@@ -155,6 +155,9 @@ struct TailTrailView: View {
                                     showProfile = true
                                 }
                             }
+                        } else {
+                            // When logged out, tapping profile opens the Login sheet
+                            showLogin = true
                         }
                     }) {
                         Image(systemName: "person.circle.fill")
@@ -178,7 +181,7 @@ struct TailTrailView: View {
                     // Right - Messaging Icon
                     Button(action: {
                         if selectedSighting != nil {
-                            showChat = true  // We'll add this state
+                            showChat = true
                         }
                     }) {
                         Image(systemName: "message.circle.fill")
@@ -236,16 +239,11 @@ struct TailTrailView: View {
             }
         }
         .onAppear {
-            if !isLoggedIn {
-                showLogin = true
-            }
+            // Do NOT force login on appear; app is usable while logged out
             loadSightings()
         }
-        .onChange(of: isLoggedIn) {
-            if !isLoggedIn {
-                showLogin = true  // Show login when logged out
-            }
-        }
+        // Do NOT auto-present login on logout; user can choose to open it via profile button
+        // .onChange(of: isLoggedIn) { ... } removed intentionally
     }
     
     
