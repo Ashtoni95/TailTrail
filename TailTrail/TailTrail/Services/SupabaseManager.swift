@@ -231,7 +231,8 @@ class SupabaseManager {
         return channel
     }
     
-    // Add a User model
+    // MARK: - User model and auth
+    
     struct User: Codable {
         let id: Int
         let email: String
@@ -239,6 +240,7 @@ class SupabaseManager {
         let firstName: String?
         let lastName: String?
         let created_at: String?
+        let avatarURL: String?
         
         enum CodingKeys: String, CodingKey {
             case id
@@ -247,6 +249,7 @@ class SupabaseManager {
             case firstName = "first_name"
             case lastName = "last_name"
             case created_at
+            case avatarURL = "avatar_url"
         }
     }
 
@@ -266,5 +269,54 @@ class SupabaseManager {
             throw error
         }
     }
+    
+    // MARK: - Avatar upload/update
 
+    // Upload avatar image data to Storage bucket "avatars" and return a public URL string.
+    func uploadAvatar(imageData: Data, for userId: Int) async throws -> String {
+        // File path convention: user_<id>/<timestamp>.jpg
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let path = "user_\(userId)/avatar_\(timestamp).jpg"
+        
+        // Upload with contentType image/jpeg and upsert true so user can replace later
+        try await client.storage
+            .from("avatars")
+            .upload(
+                path,
+                data: imageData,
+                options: FileOptions(
+                    cacheControl: "3600",
+                    contentType: "image/jpeg",
+                    upsert: true
+                )
+            )
+        
+        // Build a public URL (throws and returns non-optional URL in current SDK).
+        let publicURL = try client.storage.from("avatars").getPublicURL(path: path)
+        return publicURL.absoluteString
+        
+        // If not public, you could create a signed URL instead:
+        // let signed = try await client.storage.from("avatars").createSignedURL(path: path, expiresIn: 60 * 60)
+        // return signed.absoluteString
+    }
+    
+    // Update the users.avatar_url column
+    func updateUserAvatarURL(userId: Int, url: String) async throws -> User {
+        struct UpdateUser: Encodable {
+            let avatar_url: String
+        }
+        let payload = UpdateUser(avatar_url: url)
+        
+        let updated: User = try await client
+            .from("users")
+            .update(payload)
+            .eq("id", value: userId)
+            .select()
+            .single()
+            .execute()
+            .value
+        
+        return updated
+    }
 }
+
