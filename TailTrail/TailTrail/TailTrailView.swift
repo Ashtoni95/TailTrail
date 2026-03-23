@@ -213,6 +213,7 @@ struct TailTrailView: View {
                 currentUserId: currentUserData?.id
             )
         }
+        
         .sheet(isPresented: $showLogin) {
             LoginView(
                 isLoggedIn: $isLoggedIn,

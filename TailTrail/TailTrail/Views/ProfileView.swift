@@ -7,6 +7,7 @@
 // Views/ProfileView.swift
 import SwiftUI
 import Supabase
+import PhotosUI
 
 struct ProfileView: View {
     @Environment(\.dismiss) var dismiss
@@ -17,6 +18,16 @@ struct ProfileView: View {
     @State private var showLogoutAlert = false
     @State private var sightingCount = 0
     
+    // Avatar state
+    @State private var avatarURL: String? // remote fallback (unused for saving)
+    @State private var isUploading = false
+    @State private var uploadError: String?
+    @State private var photoItem: PhotosPickerItem?
+    @State private var localAvatarImage: UIImage?
+    
+    // Hover state for the "Change Photo" button
+    @State private var isHoveringChangePhoto = false
+    
     var body: some View {
         NavigationView {
             List {
@@ -25,14 +36,79 @@ struct ProfileView: View {
                     HStack {
                         Spacer()
                         VStack(spacing: 12) {
-                            // Profile Icon
+                            // Profile Avatar
                             ZStack {
-                                Circle()
-                                    .fill(Color.blue.opacity(0.2))
-                                    .frame(width: 100, height: 100)
+                                if let image = localAvatarImage {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 110, height: 110)
+                                        .clipShape(Circle())
+                                } else if let avatarURL, let url = URL(string: avatarURL) {
+                                    // Fallback to remote if you still want to show it when no local image yet.
+                                    AsyncImage(url: url) { phase in
+                                        switch phase {
+                                        case .empty:
+                                            ProgressView()
+                                                .frame(width: 110, height: 110)
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 110, height: 110)
+                                                .clipShape(Circle())
+                                        case .failure:
+                                            defaultAvatar
+                                        @unknown default:
+                                            defaultAvatar
+                                        }
+                                    }
+                                } else {
+                                    defaultAvatar
+                                }
                                 
-                                Text("📊")
-                                    .font(.system(size: 50))
+                                if isUploading {
+                                    Circle()
+                                        .fill(Color.black.opacity(0.4))
+                                        .frame(width: 110, height: 110)
+                                    ProgressView()
+                                        .tint(.white)
+                                }
+                            }
+                            
+                            // Change photo button with hover effect
+                            if user != nil {
+                                PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "camera.fill")
+                                        Text("Change Photo")
+                                    }
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(isHoveringChangePhoto ? Color.blue.opacity(0.12) : Color.clear)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(isHoveringChangePhoto ? Color.blue.opacity(0.6) : Color.blue.opacity(0.3), lineWidth: 1)
+                                    )
+                                    .foregroundColor(isHoveringChangePhoto ? .blue : .primary)
+                                    .scaleEffect(isHoveringChangePhoto ? 1.03 : 1.0)
+                                    .animation(.easeInOut(duration: 0.12), value: isHoveringChangePhoto)
+                                }
+                                .disabled(isUploading)
+                                .onHover { hovering in
+                                    #if os(macOS) || targetEnvironment(macCatalyst)
+                                    withAnimation(.easeInOut(duration: 0.12)) {
+                                        isHoveringChangePhoto = hovering
+                                    }
+                                    #endif
+                                }
+                                .onChange(of: photoItem) { _ in
+                                    Task { await pickAndSaveLocally() }
+                                }
                             }
                             
                             // User Name
@@ -51,6 +127,14 @@ struct ProfileView: View {
                                 Text("Member since \(formatDate(createdDate))")
                                     .font(.caption)
                                     .foregroundColor(.gray)
+                            }
+                            
+                            if let uploadError {
+                                Text(uploadError)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.top, 4)
                             }
                         }
                         Spacer()
@@ -162,10 +246,27 @@ struct ProfileView: View {
                 Text("Are you sure you want to log out?")
             }
             .onAppear {
+                avatarURL = user?.avatarURL // fallback only
+                loadLocalAvatar()
                 fetchSightingCount()
             }
         }
     }
+    
+    // MARK: - Views
+    
+    private var defaultAvatar: some View {
+        ZStack {
+            Circle()
+                .fill(Color.blue.opacity(0.15))
+                .frame(width: 110, height: 110)
+            Image(systemName: "person.fill")
+                .font(.system(size: 50, weight: .semibold))
+                .foregroundColor(.blue)
+        }
+    }
+    
+    // MARK: - Helpers
     
     private func formatDate(_ dateString: String) -> String {
         let formatter = DateFormatter()
@@ -199,10 +300,76 @@ struct ProfileView: View {
         }
     }
 
-
     private func logout() {
         isLoggedIn = false
         currentUser = nil
         dismiss()
     }
+    
+    // MARK: - Local avatar handling (no database, no storage)
+    
+    private func pickAndSaveLocally() async {
+        uploadError = nil
+        guard user != nil else { return }
+        guard let item = photoItem else { return }
+        
+        isUploading = true
+        
+        do {
+            if let data = try await item.loadTransferable(type: Data.self) {
+                // Convert to JPEG for consistent storage and smaller size
+                let jpegData = dataToJPEG(data: data) ?? data
+                try saveLocalAvatar(data: jpegData)
+                await MainActor.run {
+                    self.localAvatarImage = UIImage(data: jpegData)
+                    self.isUploading = false
+                }
+            } else {
+                await MainActor.run {
+                    self.isUploading = false
+                    self.uploadError = "Couldn't read selected image."
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.isUploading = false
+                self.uploadError = "Save failed: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    private func loadLocalAvatar() {
+        let url = localAvatarURL()
+        guard let data = try? Data(contentsOf: url) else {
+            self.localAvatarImage = nil
+            return
+        }
+        self.localAvatarImage = UIImage(data: data)
+    }
+    
+    private func saveLocalAvatar(data: Data) throws {
+        let url = localAvatarURL()
+        let dir = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
+    }
+    
+    private func localAvatarURL() -> URL {
+        // Use a per-user filename to avoid collisions when multiple users log in on same device
+        let filename = "avatar_user_\(user?.id ?? 0).jpg"
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("Avatars").appendingPathComponent(filename)
+    }
+    
+    // Best-effort conversion to JPEG at reasonable quality.
+    private func dataToJPEG(data: Data) -> Data? {
+        #if canImport(UIKit)
+        if let image = UIImage(data: data),
+           let jpeg = image.jpegData(compressionQuality: 0.85) {
+            return jpeg
+        }
+        #endif
+        return nil
+    }
 }
+
