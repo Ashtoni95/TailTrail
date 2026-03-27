@@ -14,6 +14,7 @@ struct ProfileView: View {
     @Binding var isLoggedIn: Bool
     @Binding var currentUser: String?
     let user: SupabaseManager.User?
+    @Binding var appColorScheme: String  // <-- Add this binding
     
     @State private var showLogoutAlert = false
     @State private var sightingCount = 0
@@ -142,6 +143,18 @@ struct ProfileView: View {
                     .padding(.vertical, 20)
                 }
                 .listRowBackground(Color.clear)
+                
+                // --- Appearance section (Theme switch) ---
+                Section(header: Text("APPEARANCE")) {
+                    Picker("Theme", selection: $appColorScheme) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                    .accessibilityIdentifier("themePicker")
+                }
+                // -----------------------------------------
                 
                 // Account Details
                 Section(header: Text("ACCOUNT INFORMATION")) {
