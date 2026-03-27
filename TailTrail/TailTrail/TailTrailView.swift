@@ -29,6 +29,9 @@ struct TailTrailView: View {
     @State private var showProfile = false
     @State var currentUserData: SupabaseManager.User?
     
+    // Persistent color scheme preference
+    @AppStorage("appColorScheme") private var appColorScheme: String = "system"
+    
     var body: some View {
         ZStack {
             DogMapView(
@@ -195,6 +198,11 @@ struct TailTrailView: View {
             }
             .ignoresSafeArea(edges: .bottom)
         }
+        // Apply persistent color scheme
+        .preferredColorScheme(
+            appColorScheme == "system" ? nil :
+            (appColorScheme == "dark" ? .dark : .light)
+        )
         .sheet(isPresented: $showAddSighting) {
             AddSightingView(
                 onAdd: { latitude, longitude, type, age, chipped, area, description, userId, isLost in
@@ -213,7 +221,6 @@ struct TailTrailView: View {
                 currentUserId: currentUserData?.id
             )
         }
-        
         .sheet(isPresented: $showLogin) {
             LoginView(
                 isLoggedIn: $isLoggedIn,
@@ -228,7 +235,8 @@ struct TailTrailView: View {
             ProfileView(
                 isLoggedIn: $isLoggedIn,
                 currentUser: $currentUser,
-                user: currentUserData
+                user: currentUserData,
+                appColorScheme: $appColorScheme // <-- FIXED: Always provide this binding!
             )
         }
         .sheet(isPresented: $showChat) {
@@ -341,3 +349,4 @@ struct TailTrailView: View {
 #Preview {
     TailTrailView()
 }
+
