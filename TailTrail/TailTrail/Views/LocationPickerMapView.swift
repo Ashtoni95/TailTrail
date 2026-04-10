@@ -14,6 +14,31 @@ struct LocationPickerMapView: UIViewRepresentable {
     
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
+        
+        //  zoom buttons
+        let zoomInButton = UIButton(type: .system)
+        zoomInButton.setImage(UIImage(systemName: "plus"), for: .normal)
+        zoomInButton.backgroundColor = .systemBackground
+        zoomInButton.layer.cornerRadius = 20
+        zoomInButton.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+
+        let zoomOutButton = UIButton(type: .system)
+        zoomOutButton.setImage(UIImage(systemName: "minus"), for: .normal)
+        zoomOutButton.backgroundColor = .systemBackground
+        zoomOutButton.layer.cornerRadius = 20
+        zoomOutButton.frame = CGRect(x: 0, y: 50, width: 40, height: 40)
+
+        
+        let container = UIView(frame: CGRect(x: mapView.frame.width - 56, y: 80, width: 40, height: 100))
+        container.autoresizingMask = [.flexibleLeftMargin, .flexibleBottomMargin]
+
+        zoomInButton.addTarget(context.coordinator, action: #selector(Coordinator.zoomInTapped), for: .touchUpInside)
+        zoomOutButton.addTarget(context.coordinator, action: #selector(Coordinator.zoomOutTapped), for: .touchUpInside)
+
+        container.addSubview(zoomInButton)
+        container.addSubview(zoomOutButton)
+
+        mapView.addSubview(container)
         mapView.delegate = context.coordinator
         mapView.showsUserLocation = true
         
@@ -58,6 +83,22 @@ struct LocationPickerMapView: UIViewRepresentable {
     
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: LocationPickerMapView
+        
+        @objc func zoomInTapped(_ sender: UIButton) {
+            guard let mapView = sender.superview?.superview as? MKMapView else { return }
+            var region = mapView.region
+            region.span.latitudeDelta /= 2
+            region.span.longitudeDelta /= 2
+            mapView.setRegion(region, animated: true)
+        }
+
+        @objc func zoomOutTapped(_ sender: UIButton) {
+            guard let mapView = sender.superview?.superview as? MKMapView else { return }
+            var region = mapView.region
+            region.span.latitudeDelta *= 2
+            region.span.longitudeDelta *= 2
+            mapView.setRegion(region, animated: true)
+        }
         
         init(_ parent: LocationPickerMapView) {
             self.parent = parent
@@ -131,5 +172,18 @@ struct LocationPickerMapView: UIViewRepresentable {
                 }
             }
         }
+    }
+    private func zoomIn(mapView: MKMapView) {
+        var region = mapView.region
+        region.span.latitudeDelta /= 2
+        region.span.longitudeDelta /= 2
+        mapView.setRegion(region, animated: true)
+    }
+
+    private func zoomOut(mapView: MKMapView) {
+        var region = mapView.region
+        region.span.latitudeDelta *= 2
+        region.span.longitudeDelta *= 2
+        mapView.setRegion(region, animated: true)
     }
 }

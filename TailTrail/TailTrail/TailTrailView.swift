@@ -17,6 +17,8 @@ struct TailTrailView: View {
     @State private var showAddSighting = false
     @State private var searchText = ""
     @State private var filteredSightings: [Sighting] = []
+    @State private var showNotifications = false
+    @State private var selectedNotification: Notification?
     @State private var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 49.888056, longitude: -119.495556),
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
@@ -31,6 +33,7 @@ struct TailTrailView: View {
     
     var body: some View {
         ZStack {
+            
             DogMapView(
                 sightings: displayedSightings,
                 selectedSighting: $selectedSighting,
@@ -81,7 +84,33 @@ struct TailTrailView: View {
                     }
                 }
             }
-            
+            VStack {
+                HStack {
+                    Spacer()
+                    
+                    VStack(spacing: 12) {
+                        Button(action: zoomIn) {
+                            Image(systemName: "plus")
+                                .frame(width: 40, height: 40)
+                                .background(Color(.systemBackground))
+                                .clipShape(Circle())
+                                .shadow(radius: 3)
+                        }
+                        
+                        Button(action: zoomOut) {
+                            Image(systemName: "minus")
+                                .frame(width: 40, height: 40)
+                                .background(Color(.systemBackground))
+                                .clipShape(Circle())
+                                .shadow(radius: 3)
+                        }
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.top, 80)
+                }
+                
+                Spacer()
+            }
             // Top bar with refresh and search
             VStack {
                 HStack {
@@ -126,8 +155,15 @@ struct TailTrailView: View {
             
             // Bottom Navigation Bar
             VStack {
-                Spacer()
-                
+                  Spacer()
+//                Button(action: {
+//                    print("Bell tapped")
+//                    showNotifications = true
+//                }) {
+//                    Image(systemName: "bell.fill")
+//                        .font(.system(size: 28))
+//                        .foregroundColor(.blue)
+//                }
                 HStack {
                     // Left - Profile Icon
                     Button(action: {
@@ -235,6 +271,14 @@ struct TailTrailView: View {
                 ChatView(sighting: sighting)
             }
         }
+        .sheet(isPresented: $showNotifications) {
+            NotificationsView(
+                userId: SupabaseManager.shared.currentUserId ?? -1
+            ) { notification in
+                handleNotificationTap(notification)
+                showNotifications = false
+            }
+        }
         .onAppear {
             if !isLoggedIn {
                 showLogin = true
@@ -330,6 +374,69 @@ struct TailTrailView: View {
                 await MainActor.run {
                     self.errorMessage = "Failed to load sightings: \(error.localizedDescription)"
                     self.isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func zoomIn() {
+        region.span.latitudeDelta /= 2
+        region.span.longitudeDelta /= 2
+    }
+
+    private func zoomOut() {
+        region.span.latitudeDelta *= 2
+        region.span.longitudeDelta *= 2
+    }
+    private func handleNotificationTap(_ notification: Notification) {
+        
+        if notification.type == "match" {
+            // Go to map + highlight sighting
+            
+            Task {
+                do {
+                    let sightings: [Sighting] = try await SupabaseManager.shared.client
+                        .from("sightings")
+                        .select()
+                        .eq("id", value: notification.sightingId)
+                        .execute()
+                        .value
+                    
+                    if let sighting = sightings.first {
+                        await MainActor.run {
+                            selectedSighting = sighting
+                            
+                            region = MKCoordinateRegion(
+                                center: sighting.coordinate,
+                                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                            )
+                        }
+                    }
+                } catch {
+                    print("Error loading sighting from notification:", error)
+                }
+            }
+            
+        } else if notification.type == "chat" {
+            // Open chat
+            
+            Task {
+                do {
+                    let sightings: [Sighting] = try await SupabaseManager.shared.client
+                        .from("sightings")
+                        .select()
+                        .eq("id", value: notification.sightingId)
+                        .execute()
+                        .value
+                    
+                    if let sighting = sightings.first {
+                        await MainActor.run {
+                            selectedSighting = sighting
+                            showChat = true
+                        }
+                    }
+                } catch {
+                    print("Error opening chat from notification:", error)
                 }
             }
         }

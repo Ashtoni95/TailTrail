@@ -118,7 +118,9 @@ class SupabaseManager {
                 .single()
                 .execute()
                 .value
-            
+            Task {
+                await self.checkForMatches(newSighting: sighting)
+            }
             return sighting
         } catch {
             print("Error creating sighting: \(error)")
@@ -186,6 +188,7 @@ class SupabaseManager {
                 .value
             
             return message
+            await createChatNotification(for: sightingId, senderId: userId)
         } catch {
             print("Error sending message: \(error)")
             throw error
@@ -264,6 +267,120 @@ class SupabaseManager {
         } catch {
             print("Error authenticating user: \(error)")
             throw error
+        }
+    }
+    func checkForMatches(newSighting: Sighting) async {
+        // Only check if it's a spotted dog
+        guard !newSighting.isLost else { return }
+        
+        do {
+            let lostDogs: [Sighting] = try await client
+                .from("sightings")
+                .select()
+                .eq("is_lost", value: true)
+                .execute()
+                .value
+            
+            for lostDog in lostDogs {
+                let breedMatch = lostDog.type.lowercased() == newSighting.type.lowercased()
+                let areaMatch = lostDog.area.lowercased().contains(newSighting.area.lowercased())
+                
+                if breedMatch || areaMatch {
+                    print("MATCH FOUND: \(lostDog.type) with \(newSighting.type)")
+                    
+                    await createNotification(for: lostDog, newSighting: newSighting)
+                }
+                print("Lost dog userId:", lostDog.userId ?? -1)
+            }
+            
+        } catch {
+            print("Error matching sightings: \(error)")
+        }
+    }
+    func createNotification(for lostDog: Sighting, newSighting: Sighting) async {
+        struct NewNotification: Encodable {
+            let user_id: Int
+            let sighting_id: Int
+            let matched_sighting_id: Int
+            let message: String
+            let type: String
+            let is_read: Bool
+        }
+        
+        guard let userId = lostDog.userId else { return }
+        
+        let message = "Possible match found for your lost dog in \(newSighting.area)"
+        
+        let notification = NewNotification(
+            user_id: userId,
+            sighting_id: newSighting.id,
+            matched_sighting_id: lostDog.id,
+            message: message,
+            type: "match",
+            is_read: false
+        )
+        
+        do {
+            try await client
+                .from("notifications")
+                .insert(notification)
+                .execute()
+            print("✅ Notification created for user:", userId)
+        } catch {
+            print("Error creating notification: \(error)")
+        }
+    }
+    
+    func fetchNotifications(for userId: Int) async throws -> [Notification] {
+        let notifications: [Notification] = try await client
+            .from("notifications")
+            .select()
+            .eq("user_id", value: userId)
+            .order("created_at", ascending: false)
+            .execute()
+            .value
+        print("Fetching notifications for user:", userId)
+        return notifications
+    }
+    func createChatNotification(for sightingId: Int, senderId: Int) async {
+        do {
+            // Get the owner of the sighting
+            let sightings: [Sighting] = try await client
+                .from("sightings")
+                .select()
+                .eq("id", value: sightingId)
+                .execute()
+                .value
+            
+            guard let sighting = sightings.first,
+                  let ownerId = sighting.userId,
+                  ownerId != senderId else { return }
+            
+            struct NewNotification: Encodable {
+                let user_id: Int
+                let sighting_id: Int
+                let matched_sighting_id: Int?
+                let message: String
+                let type: String
+                let is_read: Bool
+            }
+            
+            let notification = NewNotification(
+                user_id: ownerId,
+                sighting_id: sightingId,
+                matched_sighting_id: nil,
+                message: "New message on your sighting",
+                type: "chat",
+                is_read: false
+            )
+            
+            try await client
+                .from("notifications")
+                .insert(notification)
+                .execute()
+            
+        } catch {
+            print("Error creating chat notification:", error)
         }
     }
 

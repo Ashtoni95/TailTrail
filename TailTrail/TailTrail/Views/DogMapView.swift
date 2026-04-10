@@ -32,7 +32,10 @@ struct DogMapView: UIViewRepresentable {
             pow(currentCenter.longitude - region.center.longitude, 2)
         )
         
-        if distance > 0.01 {
+        let currentSpan = mapView.region.span
+        let spanDiff = abs(currentSpan.latitudeDelta - region.span.latitudeDelta)
+
+        if spanDiff > 0.0001 {
             mapView.setRegion(region, animated: true)
         }
         
